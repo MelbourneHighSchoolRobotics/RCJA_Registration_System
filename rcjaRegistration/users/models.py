@@ -55,6 +55,13 @@ class User(AbstractUser):
     homeState = models.ForeignKey('regions.State', verbose_name='Home state', on_delete=models.PROTECT, null=True, blank=True)
     homeRegion = models.ForeignKey('regions.Region', verbose_name='Home region', on_delete=models.PROTECT, null=True, blank=True)
 
+    # Preferences and settings
+    currentlySelectedSchool = models.ForeignKey('schools.School', verbose_name='Currently selected school', on_delete=models.SET_NULL, null=True, blank=True, editable=False)
+
+    # Flags
+    forcePasswordChange = models.BooleanField('Force password change', default=False)
+    forceDetailsUpdate = models.BooleanField('Force details update', default=False)
+
     # *****Clean*****
 
     def clean(self):
@@ -64,12 +71,32 @@ class User(AbstractUser):
             raise ValidationError({'email': _('User with this Email address already exists.')})
 
     # *****Permissions*****
+    @classmethod
+    def coordinatorPermissions(cls, level):
+        if level in ['full', 'viewall', 'eventmanager', 'schoolmanager', 'billingmanager']:
+            return [
+                'view',
+            ]
+        
+        return []
+
+    # Used in state coordinator permission checking
+    def getState(self):
+        return self.homeState
 
     # *****Save & Delete Methods*****
 
     # *****Methods*****
 
+    # Reset forcePasswordChange
+    def set_password(self, password):
+        super().set_password(password)
+        self.forcePasswordChange = False
+
     # *****Get Methods*****
+
+    def fullname_or_email(self):
+        return self.get_full_name() or self.email
 
     # *****CSV export methods*****
 

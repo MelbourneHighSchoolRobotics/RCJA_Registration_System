@@ -26,22 +26,62 @@ class DivisionAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
 
 admin.site.register(Year)
 
+class AvailableDivisionInline(admin.TabularInline):
+    model = AvailableDivision
+    extra = 0
+    autocomplete_fields = [
+        'division',
+    ]
+
 @admin.register(Event)
 class EventAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
     list_display = [
         'name',
+        'eventType',
         'year',
         'state',
         'startDate',
         'endDate',
         'registrationsOpenDate',
         'registrationsCloseDate',
-        'entryFee',
         'directEnquiriesTo'
+    ]
+    fieldsets = (
+        (None, {
+            'fields': ('year', 'state', 'name', 'eventType')
+        }),
+        ('Dates', {
+            'fields': ('startDate', 'endDate', 'registrationsOpenDate', 'registrationsCloseDate')
+        }),
+        ('Team settings', {
+            'fields': ('maxMembersPerTeam', 'event_maxTeamsPerSchool', 'event_maxTeamsForEvent',)
+        }),
+        ('Billing settings', {
+            'fields': ('event_billingType', 'event_defaultEntryFee', ('event_specialRateNumber', 'event_specialRateFee'), 'paymentDueDate')
+        }),
+        ('Details', {
+            'fields': ('directEnquiriesTo', 'eventDetails', 'location', 'additionalInvoiceMessage')
+        }),
+    )
+    autocomplete_fields = [
+        'state',
+        'directEnquiriesTo',
+    ]
+    inlines = [
+        AvailableDivisionInline,
     ]
     list_filter = [
         'state',
-        'year'
+        'eventType',
+        'year',
+    ]
+    search_fields = [
+        'name',
+        'state__name',
+        'state__abbreviation',
+        'directEnquiriesTo__first_name',
+        'directEnquiriesTo__last_name',
+        'directEnquiriesTo__email',
     ]
     actions = [
         'export_as_csv'
@@ -54,9 +94,12 @@ class EventAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
         'endDate',
         'registrationsOpenDate',
         'registrationsCloseDate',
-        'entryFee',
         'directEnquiriesTo'
     ]
+
+    formfield_overrides = {
+        models.TextField: {'widget': Textarea(attrs={'rows':4, 'cols':130})},
+    }
 
     def stateFilteringAttributes(self, request):
         from coordination.models import Coordinator

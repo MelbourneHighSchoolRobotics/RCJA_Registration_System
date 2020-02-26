@@ -36,7 +36,7 @@
             <i class="home icon"></i>
             Dashboard
         </a>  
-        <a class="item" href="{% url 'events:loggedInConstruction' %}">
+        <!-- <a class="item" href="{% url 'events:loggedInConstruction' %}">
             <i class="calendar alternate icon"></i>
             My Events
         </a>  
@@ -47,8 +47,8 @@
         <a class="item" href="{% url 'events:loggedInConstruction' %}">
             <i class="user icon"></i>
             My Students
-        </a>       
-        <a class="item" href="{% url 'events:loggedInConstruction' %}">
+        </a>        -->
+        <a class="item" href="{% url 'invoices:summary' %}">
             <i class="credit card icon"></i>
             My Invoices
         </a>   
@@ -60,18 +60,13 @@
         {% endif %}
         <div class="vertical menu item" >
             <i class="user circle icon"></i>
-            <span style="width:3.5rem;overflow: hidden;
-text-overflow: ellipsis;">
-            {% if user.get_full_name %} 
-                {{ user.get_full_name }}
-                {% else %}
-                {{user.email}}
-            {% endif %}
+            <span style="width:3.5rem;overflow: hidden; text-overflow: ellipsis;">
+            {{ user.fullname_or_email }}
             </span>
                 <i class="dropdown icon"></i>
                 <div class="menu">
-                    <a href="{% url 'users:profile' %}" class="item">My details</a>
-                    <a href="{% url 'users:profile' %}" class="item">My school</a>
+                    <a href="{% url 'users:details' %}" class="item">My details</a>
+                    {% if user.currentlySelectedSchool %}<a href="{% url 'schools:details' %}" class="item">School details</a>{% endif %}
                     <a href = "{% url 'password_change' %}" class="item">Change password</a>
                     <a href = "{% url 'logout' %}" class="item">Log out</a>
                     <a class="item">Help</a>
@@ -88,7 +83,7 @@ text-overflow: ellipsis;">
                 <i class="home icon"></i>
                 Dashboard
             </a>  
-            <a class="item" href="{% url 'events:loggedInConstruction' %}">
+            <!-- <a class="item" href="{% url 'events:loggedInConstruction' %}">
                 <i class="calendar alternate icon"></i>
                 My Events
             </a>  
@@ -99,8 +94,8 @@ text-overflow: ellipsis;">
             <a class="item" href="{% url 'events:loggedInConstruction' %}">
                 <i class="user icon"></i>
                 My Students
-            </a>       
-            <a class="item" href="{% url 'events:loggedInConstruction' %}">
+            </a>        -->
+            <a class="item" href="{% url 'invoices:summary' %}">
                 <i class="credit card icon"></i>
                 My Invoices
             </a>                          
@@ -112,20 +107,32 @@ text-overflow: ellipsis;">
                 Admin
             </a>
             {% endif %}
+            {% if user.schooladministrator_set.count > 1 %}
+                <div class="ui dropdown simple item" >
+                    <span style="width:3.3em; overflow: hidden; text-overflow: ellipsis;">
+                    {% if user.currentlySelectedSchool %}
+                    {{ user.currentlySelectedSchool.abbreviation }}
+                    {% else %}
+                    School
+                    {% endif %}
+                    </span>
+                        <i class="dropdown icon"></i>
+                        <div class="menu">
+                            {% for schoolAdmin in user.schooladministrator_set.all %}
+                                <a href="{% url 'schools:setCurrentSchool' schoolAdmin.school.id %}" class="item">{{ schoolAdmin.school.abbreviation }}</a>
+                            {% endfor %}
+                        </div>
+                </div>
+            {% endif %}
             <div class="ui dropdown simple item" >
                 <i class="user circle icon"></i>
-                <span style="width:3.5rem;overflow: hidden;
-  text-overflow: ellipsis;">
-                {% if user.get_full_name %} 
-                    {{ user.get_full_name }}
-                    {% else %}
-                    {{user.email}}
-                {% endif %}
+                <span style="width:3.5rem; overflow: hidden; text-overflow: ellipsis;">
+                {{ user.fullname_or_email }}
                 </span>
                     <i class="dropdown icon"></i>
                     <div class="menu">
-                        <a href="{% url 'users:profile' %}" class="item">My details</a>
-                        <a href="{% url 'users:profile' %}" class="item">My school</a>
+                        <a href="{% url 'users:details' %}" class="item">My details</a>
+                        {% if user.currentlySelectedSchool %}<a href="{% url 'schools:details' %}" class="item">School details</a>{% endif %}
                         <a href = "{% url 'password_change' %}" class="item">Change password</a>
                         <a href = "{% url 'logout' %}" class="item">Log out</a>
                         <a class="item">Help</a>

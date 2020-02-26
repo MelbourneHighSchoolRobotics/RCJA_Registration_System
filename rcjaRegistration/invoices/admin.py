@@ -8,7 +8,9 @@ from .models import *
 
 @admin.register(InvoiceGlobalSettings)
 class InvoiceGlobalSettingsAdmin(admin.ModelAdmin):
-    pass
+    # Settings must be present for invoice view to work
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 class InvoicePaymentInline(admin.TabularInline):
     model = InvoicePayment
@@ -18,29 +20,42 @@ class InvoicePaymentInline(admin.TabularInline):
 class InvoiceAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
     list_display = [
         'event',
+        'invoiceToUser',
         'school',
+        'campus',
+        'invoiceNumber',
         'purchaseOrderNumber',
-        'invoiceAmount',
+        'invoiceAmountInclGST',
         'amountPaid',
-        'amountDue'    
+        'amountDueInclGST'    
     ]
     readonly_fields = [
-        'invoiceAmount',
+        'event',
+        'invoiceToUser',
+        'school',
+        'campus',
+        'invoiceNumber',
+        'invoiceAmountInclGST',
         'amountPaid',
-        'amountDue'        
+        'amountDueInclGST'        
     ]
     list_filter = [
         'event__state',
-        'event'
+        'event',
     ]
     search_fields = [
         'event__state__name',
+        'event__state__abbreviation',
         'event__name',
         'school__name',
-        'school__abbreviation'
+        'school__abbreviation',
+        'campus__name',
+        'invoiceToUser__first_name',
+        'invoiceToUser__last_name',
+        'invoiceToUser__email',
     ]
     inlines = [
-        InvoicePaymentInline
+        InvoicePaymentInline,
     ]
     actions = [
         'export_as_csv'
@@ -49,9 +64,9 @@ class InvoiceAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
         'event',
         'school',
         'purchaseOrderNumber',
-        'invoiceAmount',
+        'invoiceAmountInclGST',
         'amountPaid',
-        'amountDue'    
+        'amountDueInclGST',
     ]
 
     def stateFilteringAttributes(self, request):
@@ -61,6 +76,10 @@ class InvoiceAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
         }
     
     # Prevent deleting invoice, because will interfere with auto creation of invoices on team creation
+    # Prevent add because always created by signal
     # Reconsider in conjuction with signals
     def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_add_permission(self, request, obj=None):
         return False
