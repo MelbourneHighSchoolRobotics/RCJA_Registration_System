@@ -29,6 +29,7 @@ class SchoolAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
         'region__name',
         'name',
         'abbreviation',
+        'postcode',
     ]
     autocomplete_fields = [
         'state'
@@ -48,28 +49,45 @@ class SchoolAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
         'region'
     ]
 
+    # Set forceDetailsUpdate if a field is blank
+    def save_model(self, request, obj, form, change):
+        for field in ['postcode']:
+            if getattr(obj, field) is None:
+                obj.forceSchoolDetailsUpdate = True
+        
+        # For existing campuses
+        if obj.campus_set.filter(postcode=None).exists():
+            obj.forceSchoolDetailsUpdate = True
+
+        super().save_model(request, obj, form, change)
+
+    # For newly added or changed campuses
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if not getattr(instance, 'postcode', True) and not instance.school.forceSchoolDetailsUpdate: # Use true as default because school administrator instances will be included here and have no postcode field
+                instance.school.forceSchoolDetailsUpdate = True
+                instance.school.save(update_fields=['forceSchoolDetailsUpdate'])
+
+        super().save_formset(request, form, formset, change)
+
     # State based filtering
 
     @classmethod
     def fieldsToFilterRequest(cls, request):
-        from coordination.adminPermissions import reversePermisisons
+        from regions.admin import StateAdmin
         from regions.models import State
         return [
             {
                 'field': 'state',
-                'queryset': State.objects.filter(
-                    coordinator__user=request.user,
-                    coordinator__permissions__in=reversePermisisons(School, ['add', 'change'])
-                )
+                'fieldModel': State,
+                'fieldAdmin': StateAdmin,
             }
         ]
 
-    @classmethod
-    def stateFilteringAttributes(cls, request):
-        from coordination.models import Coordinator
-        return {
-            'state__coordinator__in': Coordinator.objects.filter(user=request.user)
-        }
+    stateFilterLookup = 'state__coordinator'
+
+    # Actions
 
     def setForceDetailsUpdate(self, request, queryset):
         queryset.update(forceSchoolDetailsUpdate=True)
@@ -93,6 +111,7 @@ class CampusAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
         'school__region__name',
         'school__name',
         'school__abbreviation',
+        'postcode',
     ]
     autocomplete_fields = [
         'school'
@@ -109,23 +128,15 @@ class CampusAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
 
     @classmethod
     def fieldsToFilterRequest(cls, request):
-        from coordination.adminPermissions import reversePermisisons
         return [
             {
                 'field': 'school',
-                'queryset': School.objects.filter(
-                    state__coordinator__user=request.user,
-                    state__coordinator__permissions__in=reversePermisisons(Campus, ['add', 'change'])
-                )
+                'fieldModel': School,
+                'fieldAdmin': SchoolAdmin,
             }
         ]
 
-    @classmethod
-    def stateFilteringAttributes(cls, request):
-        from coordination.models import Coordinator
-        return {
-            'school__state__coordinator__in': Coordinator.objects.filter(user=request.user)
-        }
+    stateFilterLookup = 'school__state__coordinator'
 
     fields = [
         'school',
@@ -186,16 +197,12 @@ class SchoolAdministratorAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.
 
     @classmethod
     def fieldsToFilterRequest(cls, request):
-        from coordination.adminPermissions import reversePermisisons
-        from users.models import User
         return [
             {
                 'field': 'school',
-                'queryset': School.objects.filter(
-                    state__coordinator__user=request.user,
-                    state__coordinator__permissions__in=reversePermisisons(SchoolAdministrator, ['add', 'change'])
-                )
-            },
+                'fieldModel': School,
+                'fieldAdmin': SchoolAdmin,
+            }
         ]
 
     @classmethod
@@ -208,9 +215,4 @@ class SchoolAdministratorAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.
             }
         ]
 
-    @classmethod
-    def stateFilteringAttributes(cls, request):
-        from coordination.models import Coordinator
-        return {
-            'school__state__coordinator__in': Coordinator.objects.filter(user=request.user)
-        }
+    stateFilterLookup = 'school__state__coordinator'

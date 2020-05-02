@@ -2,9 +2,11 @@ from django.contrib import admin
 from common.admin import *
 from coordination.adminPermissions import AdminPermissions, InlineAdminPermissions
 from django.contrib import messages
+from django import forms
 
 from .models import *
 from regions.models import State
+from schools.models import Campus
 
 # Register your models here.
 
@@ -47,23 +49,30 @@ class DivisionAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
 
     @classmethod
     def fieldsToFilterRequest(cls, request):
-        from coordination.adminPermissions import reversePermisisons
+        from regions.admin import StateAdmin
+        from regions.models import State
         return [
             {
                 'field': 'state',
                 'required': True,
-                'queryset': State.objects.filter(
-                    coordinator__user=request.user,
-                    coordinator__permissions__in=reversePermisisons(Division, ['add', 'change'])
-                )
+                'fieldModel': State,
+                'fieldAdmin': StateAdmin,
             }
         ]
 
     @classmethod
     def stateFilteringAttributes(cls, request):
         from coordination.models import Coordinator
+        from coordination.adminPermissions import reversePermisisons
+
+        # Check for global coordinator
+        if Coordinator.objects.filter(user=request.user, state=None).exists():
+            return [Q(state__coordinator__permissions__in = reversePermisisons(Division, ['view', 'change'])) | Q(state=None)]
+
+        # Default to filtering by state
         return [
-            Q(state__coordinator__in= Coordinator.objects.filter(user=request.user)) | Q(state=None)
+            Q(state__coordinator__in = Coordinator.objects.filter(user=request.user)) | Q(state=None),
+            Q(state__coordinator__permissions__in = reversePermisisons(Division, ['view', 'change'])) | Q(state=None)
         ]
 
 @admin.register(Venue)
@@ -98,23 +107,17 @@ class VenueAdmin(AdminPermissions, admin.ModelAdmin, ExportCSVMixin):
 
     @classmethod
     def fieldsToFilterRequest(cls, request):
-        from coordination.adminPermissions import reversePermisisons
+        from regions.admin import StateAdmin
+        from regions.models import State
         return [
             {
                 'field': 'state',
-                'queryset': State.objects.filter(
-                    coordinator__user=request.user,
-                    coordinator__permissions__in=reversePermisisons(Division, ['add', 'change'])
-                )
+                'fieldModel': State,
+                'fieldAdmin': StateAdmin,
             }
         ]
 
-    @classmethod
-    def stateFilteringAttributes(cls, request):
-        from coordination.models import Coordinator
-        return {
-            'state__coordinator__in': Coordinator.objects.filter(user=request.user)
-        }
+    stateFilterLookup = 'state__coordinator'
 
 admin.site.register(Year)
 
@@ -124,6 +127,17 @@ class AvailableDivisionInline(InlineAdminPermissions, admin.TabularInline):
     autocomplete_fields = [
         'division',
     ]
+
+    def get_exclude(self, request, obj=None):
+        if obj:
+            if obj.eventType == 'workshop':
+                return [
+                    'division_maxTeamsPerSchool',
+                    'division_maxTeamsForDivision',
+                    'division_billingType',
+                    'division_entryFee',
+                ]
+        return super().get_exclude(request, obj)
 
     @classmethod
     def fieldsToFilterObj(cls, request, obj):
@@ -149,7 +163,7 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
         'venue',
         'directEnquiriesToName',
     ]
-    fieldsets = (
+    competition_fieldsets = (
         (None, {
             'fields': ('year', ('state', 'globalEvent'), 'name', 'eventType')
         }),
@@ -166,26 +180,48 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
             'fields': ('directEnquiriesTo', 'venue', 'eventDetails', 'additionalInvoiceMessage')
         }),
     )
-    add_fieldsets = (
+    workshop_fieldsets = (
         (None, {
             'fields': ('year', ('state', 'globalEvent'), 'name', 'eventType')
         }),
         ('Dates', {
             'fields': ('startDate', 'endDate', 'registrationsOpenDate', 'registrationsCloseDate')
         }),
-        ('Team settings', {
-            'description': "More options will be available after you click save",
-            'fields': ('maxMembersPerTeam',)
+        ('Billing settings', {
+            'fields': ('entryFeeIncludesGST', 'workshopTeacherEntryFee', 'workshopStudentEntryFee', 'paymentDueDate')
+        }),
+        ('Details', {
+            'fields': ('directEnquiriesTo', 'venue', 'eventDetails', 'additionalInvoiceMessage')
+        }),
+    )
+    add_fieldsets = (
+        (None, {
+            'fields': ('year', ('state', 'globalEvent'), 'name')
+        }),
+        ('Event type', {
+            'description': "Please choose carefully, this can't be changed after the event is created",
+            'fields': ('eventType',)
+        }),
+        ('Dates', {
+            'fields': ('startDate', 'endDate', 'registrationsOpenDate', 'registrationsCloseDate')
         }),
         ('Billing settings', {
             'description': "More options will be available after you click save",
-            'fields': ('entryFeeIncludesGST', 'event_billingType', 'event_defaultEntryFee')
+            'fields': ('entryFeeIncludesGST', 'event_defaultEntryFee')
         }),
         ('Details', {
             'description': "More options will be available after you click save",
             'fields': ('directEnquiriesTo',)
         }),
     )
+
+    # Can't change event type after creation, because would make team and workshop fk validation very difficult and messy
+    readonly_fields = [
+        'eventType',
+    ]
+    add_readonly_fields = [
+    ]
+
     autocomplete_fields = [
         'state',
         'directEnquiriesTo',
@@ -244,6 +280,18 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
         models.TextField: {'widget': Textarea(attrs={'rows':4, 'cols':130})},
     }
 
+    def get_fieldsets(self, request, obj=None):
+        if not obj:
+            return self.add_fieldsets
+
+        if obj.eventType == 'workshop':
+            return self.workshop_fieldsets
+
+        if obj.eventType == 'competition':
+            return self.competition_fieldsets
+
+        return super().get_fieldsets(request, obj)
+
     # Message user during save
     def save_model(self, request, obj, form, change):
         if obj.pk:
@@ -261,28 +309,31 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
 
         super().save_formset(request, form, formset, change)
 
+    # Filter in team and workshop autocompletes
+    def get_search_results(self, request, queryset, search_term):
+        if 'teams/team/' in request.META.get('HTTP_REFERER', ''):
+            queryset = queryset.filter(eventType='competition')
+
+        if 'workshops/workshopattendee/' in request.META.get('HTTP_REFERER', ''):
+            queryset = queryset.filter(eventType='workshop')
+
+        return super().get_search_results(request, queryset, search_term)
+
     # State based filtering
 
     @classmethod
     def fieldsToFilterRequest(cls, request):
-        from coordination.adminPermissions import reversePermisisons
-        from users.models import User
+        from regions.admin import StateAdmin
+        from regions.models import State
         return [
             {
                 'field': 'state',
-                'queryset': State.objects.filter(
-                    coordinator__user=request.user,
-                    coordinator__permissions__in=reversePermisisons(Event, ['add', 'change'])
-                )
-            },
+                'fieldModel': State,
+                'fieldAdmin': StateAdmin,
+            }
         ]
 
-    @classmethod
-    def stateFilteringAttributes(cls, request):
-        from coordination.models import Coordinator
-        return {
-            'state__coordinator__in': Coordinator.objects.filter(user=request.user)
-        }
+    stateFilterLookup = 'state__coordinator'
 
     @classmethod
     def fieldsToFilterObj(cls, request, obj):
@@ -293,3 +344,114 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
                 'filterNone': True
             }
         ]
+
+class BaseWorkshopAttendanceForm(forms.ModelForm):
+    def clean(self):
+        cleaned_data = super().clean()
+        errors = []
+
+        mentorUser = cleaned_data.get('mentorUser', None)
+        school = cleaned_data.get('school', None)
+
+        # Check school is selected if mentor is admin of more than one school
+        if mentorUser and mentorUser.schooladministrator_set.count() > 1 and school is None:
+            errors.append(ValidationError(f'School must not be blank because {mentorUser.fullname_or_email()} is an administrator of multiple schools. Please select a school.'))
+
+        # Check school is set if previously set and mentor still an admin of school
+        if self.instance and self.instance.school and not school:
+            errors.append(ValidationError(f"Can't remove {self.instance.school} from this team while {self.instance.mentorUser.fullname_or_email()} is still an admin of this school."))
+
+        # Raise any errors
+        if errors:
+            raise ValidationError(errors)
+
+        return cleaned_data
+
+class BaseWorkshopAttendanceAdmin(AdminPermissions, DifferentAddFieldsMixin, admin.ModelAdmin, ExportCSVMixin):
+    list_display = [
+        'event',
+        'division',
+        'mentorUserName',
+        'school',
+        'campus',
+        'homeState',
+    ]
+    autocomplete_fields = [
+        'event',
+        'division',
+        'mentorUser',
+        'school',
+        'campus',
+    ]
+    list_filter = [
+        'event',
+        'division',
+    ]
+    search_fields = [
+        'school__state__name',
+        'school__state__abbreviation',
+        'school__region__name',
+        'school__name',
+        'school__abbreviation',
+        'campus__name',
+        'mentorUser__first_name',
+        'mentorUser__last_name',
+        'mentorUser__email',
+        'event__name',
+        'division__name',
+    ]
+    actions = [
+        'export_as_csv'
+    ]
+    exportFields = [
+        'event',
+        'division',
+        'mentorUserName',
+        'mentorUserEmail',
+        'school',
+        'campus',
+        'homeState',
+    ]
+
+    form = BaseWorkshopAttendanceForm
+
+    # Set school and campus to that of mentor if only one option
+    def save_model(self, request, obj, form, change):
+        if not obj.pk and obj.school is None and obj.mentorUser.schooladministrator_set.count() == 1:
+            obj.school = obj.mentorUser.schooladministrator_set.first().school
+            self.message_user(request, f"{obj.mentorUser.fullname_or_email()}'s school ({obj.school}) automatically added to {obj}", messages.SUCCESS)
+        
+        super().save_model(request, obj, form, change)
+
+    # State based filtering
+
+    @classmethod
+    def fieldsToFilterRequest(cls, request):
+        from events.admin import EventAdmin
+        from events.models import Event
+        return [
+            {
+                'field': 'event',
+                'fieldModel': Event,
+                'fieldAdmin': EventAdmin,
+            }
+        ]
+
+    @classmethod
+    def fieldsToFilterObj(cls, request, obj):
+        return [
+            {
+                'field': 'campus',
+                'queryset': Campus.objects.filter(school=obj.school) if obj is not None else Campus.objects.none(),
+                'filterNone': True,
+            },
+            {
+                'field': 'event',
+                'queryset': Event.objects.filter(eventType=cls.eventTypeMapping),
+                'filterNone': True,
+                'useAutocomplete': True,
+            }
+        ]
+
+    stateFilterLookup = 'event__state__coordinator'
+

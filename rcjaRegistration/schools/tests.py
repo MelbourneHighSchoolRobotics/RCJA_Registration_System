@@ -48,7 +48,7 @@ class TestSchoolCreate(TestCase): #TODO update to use new auth model
     
     def testValidSchoolCreation(self):
         self.client.login(request=HttpRequest(), username=self.username, password=self.password)
-        payload= {'name':'test','abbreviation':'TSST','state':self.newState.id,'region':self.newRegion.id}
+        payload= {'name':'test','abbreviation':'TSST','state':self.newState.id,'region':self.newRegion.id, 'postcode':3000}
         response = self.client.post(reverse(self.reverseString),data=payload)
         self.assertEqual(response.status_code,self.validSubmitCode)
         self.assertEqual(School.objects.all().count(), 2)
@@ -57,7 +57,7 @@ class TestSchoolCreate(TestCase): #TODO update to use new auth model
 
     def testInvalidSchoolCreation(self):
         self.client.login(request=HttpRequest(), username=self.username, password=self.password)
-        payload= {'name':'test','abbreviation':'TSST','state':self.newState.id,'region':self.newRegion.id}
+        payload= {'name':'test','abbreviation':'TSST','state':self.newState.id,'region':self.newRegion.id, 'postcode':3000}
         self.client.post(reverse(self.reverseString),data=payload)
         response = self.client.post(reverse(self.reverseString),data=payload)
 
@@ -211,6 +211,7 @@ class TestEditSchoolDetails(TestCase):
             year=self.year,
             state=self.state1,
             name='Test event 1',
+            eventType='competition',
             maxMembersPerTeam=5,
             entryFeeIncludesGST=True,
             event_billingType='team',
@@ -264,11 +265,29 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
         }
 
         response = self.client.post(url, data=payload)
         self.assertEqual(response.status_code, 302)
         School.objects.get(name='New name')
+
+    def testMissingManagementFormData(self):
+        self.admin1 = SchoolAdministrator.objects.create(school=self.school1, user=self.user)
+        self.client.login(request=HttpRequest(), username=self.email, password=self.password)
+        url = reverse('schools:details')
+
+        payload = {
+            "name":"New name",
+            "abbreviation": 'sch1',
+            'state': self.state1.id,
+            'region': self.region1.id,
+            'postcode':3000,
+        }
+
+        response = self.client.post(url, data=payload)
+        self.assertEquals(response.status_code, 400)
+        self.assertContains(response, 'Form data missing', status_code=400)
 
     def testChangeName_failure(self):
         self.admin1 = SchoolAdministrator.objects.create(school=self.school1, user=self.user)
@@ -288,6 +307,7 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
         }
 
         response = self.client.post(url, data=payload)
@@ -311,6 +331,7 @@ class TestEditSchoolDetails(TestCase):
             "name":"other name",
             "abbreviation": 'sch1',
             'region': self.region1.id,
+            'postcode':3000,
         }
 
         response = self.client.post(url, data=payload)
@@ -334,8 +355,11 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'campus_set-0-name': 'First campus',
+            'campus_set-0-postcode': 3000,
             'campus_set-1-name': 'Second campus',
+            'campus_set-1-postcode': 3000,
         }
 
         response = self.client.post(url, data=payload)
@@ -364,8 +388,10 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'campus_set-0-id': self.campus1.id,
             'campus_set-0-name': 'test 1',
+            'campus_set-0-postcode': 3000,
             'campus_set-0-DELETE': 'on',
         }
 
@@ -395,8 +421,10 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'campus_set-0-id': self.campus1.id,
             'campus_set-0-name': 'test 1',
+            'campus_set-0-postcode': 3000,
             'campus_set-0-DELETE': 'on',
         }
 
@@ -423,6 +451,7 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
         }
 
         response = self.client.get(url, data=payload)
@@ -450,6 +479,7 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'schooladministrator_set-0-id': self.admin1.id,
             'schooladministrator_set-1-id': self.admin2.id,
             'schooladministrator_set-1-DELETE': 'on',
@@ -480,6 +510,7 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'addAdministratorEmail': self.email2.upper(),
         }
 
@@ -509,6 +540,7 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'addAdministratorEmail': 'new@new.com',
         }
 
@@ -538,6 +570,7 @@ class TestEditSchoolDetails(TestCase):
             "abbreviation": 'sch1',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'addAdministratorEmail': 'new',
         }
 
@@ -822,6 +855,7 @@ class TestSchoolAdmin(TestCase):
             'abbreviation': 'SCH3',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'campus_set-TOTAL_FORMS': 0,
             'campus_set-INITIAL_FORMS': 0,
             'campus_set-MIN_NUM_FORMS': 0,
@@ -842,6 +876,7 @@ class TestSchoolAdmin(TestCase):
             'abbreviation': 'SCH3',
             'state': self.state1.id,
             'region': self.region1.id,
+            'postcode':3000,
             'campus_set-TOTAL_FORMS': 0,
             'campus_set-INITIAL_FORMS': 0,
             'campus_set-MIN_NUM_FORMS': 0,
@@ -862,6 +897,7 @@ class TestSchoolAdmin(TestCase):
             'abbreviation': 'SCH3',
             'state': self.state2.id,
             'region': self.region1.id,
+            'postcode':3000,
             'campus_set-TOTAL_FORMS': 0,
             'campus_set-INITIAL_FORMS': 0,
             'campus_set-MIN_NUM_FORMS': 0,

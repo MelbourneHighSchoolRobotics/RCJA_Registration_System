@@ -33,23 +33,48 @@ def reversePermisisons(obj, permissions):
     return levels
 
 class BaseAdminPermissions:
-    def get_queryset(self, request):
-        # Get base queryset
-        qs = super().get_queryset(request)
-
+    def filterQuerysetByState(self, queryset, querysetAdminClass, request, permissions):
         # Return complete queryset if super user
         if request.user.is_superuser:
-            return qs
+            return queryset
 
         # Filter based on state coordinator
-        if hasattr(self, 'stateFilteringAttributes'):
-            filteringAttributes = self.stateFilteringAttributes(request)
+        # Use filter function as first priority
+        if hasattr(querysetAdminClass, 'stateFilteringAttributes'):
+            filteringAttributes = querysetAdminClass.stateFilteringAttributes(request)
             if isinstance(filteringAttributes, list):
-                qs = qs.filter(*filteringAttributes)
+                queryset = queryset.filter(*filteringAttributes)
             else:
-                qs = qs.filter(**filteringAttributes)
+                queryset = queryset.filter(**filteringAttributes)
 
-        return qs
+            return queryset
+
+        # User filter string as second priority
+        if hasattr(querysetAdminClass, 'stateFilterLookup'):
+            filterString = querysetAdminClass.stateFilterLookup
+
+            # Check for global coordinator and permissions for this model
+            for coordinator in Coordinator.objects.filter(user=request.user, state=None).filter():
+                if coordinator.checkPermission(self.model, 'view') or coordinator.checkPermission(self.model, 'change'):                
+                    return queryset
+
+            filteringAttributes = {
+                f'{filterString}__in': Coordinator.objects.filter(user=request.user),
+                f'{filterString}__permissions__in': permissions,
+            }
+
+            return queryset.filter(**filteringAttributes)
+        
+        return queryset
+
+    def get_queryset(self, request):
+        # Get base queryset
+        queryset = super().get_queryset(request)
+        
+        defaultPermissions = reversePermisisons(self.model, ['view', 'change'])
+        permissions = getattr(self, 'stateFilteringPermissions', defaultPermissions)
+
+        return self.filterQuerysetByState(queryset, self, request, permissions)
 
     # Foreign key filtering
 
@@ -63,18 +88,29 @@ class BaseAdminPermissions:
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         # Filter by object
+        objectFiltering = False
         for fieldToFilter in self.fieldsToFilterObj(request, self.obj):
             if db_field.name == fieldToFilter['field']:
                 if self.obj is not None or fieldToFilter.get('filterNone', False):
-                    kwargs['queryset'] = fieldToFilter['queryset']
-                    return super().formfield_for_foreignkey(db_field, request, **kwargs)
+                    queryset = fieldToFilter['queryset']
+                    kwargs['queryset'] = queryset
+                    objectFiltering = True
 
         # Filter by state
         if not request.user.is_superuser:
             for fieldToFilter in self.fieldsToFilterRequest(request):
                 if db_field.name == fieldToFilter['field']:
 
-                    kwargs['queryset'] = fieldToFilter['queryset']
+                    if not objectFiltering:
+                        queryset = fieldToFilter['fieldModel'].objects.all()
+
+                    # Use defined permissions if present, else default to add and change on current model
+                    defaultPermissions = reversePermisisons(self.model, ['add', 'change'])
+                    permissions = fieldToFilter.get('permissions', defaultPermissions)
+                    
+                    queryset = self.filterQuerysetByState(queryset, fieldToFilter['fieldAdmin'], request, permissions)
+
+                    kwargs['queryset'] = queryset
 
                     # Set required if specified
                     try:
@@ -83,9 +119,9 @@ class BaseAdminPermissions:
                     except KeyError:
                         pass
 
-                    # Try and set the default to save admins time
-                    if fieldToFilter['queryset'].count() == 1:
-                        kwargs['initial'] = fieldToFilter['queryset'].first().id
+                    # Try and set the default to save admins time, but not if objectFiltering because might not be the ideal default
+                    if queryset.count() == 1 and not objectFiltering:
+                        kwargs['initial'] = queryset.first().id
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -93,7 +129,7 @@ class BaseAdminPermissions:
         autocompleteFields = super().get_autocomplete_fields(request)
 
         for fieldToFilter in self.fieldsToFilterObj(request, self.obj):
-            if self.obj is not None or fieldToFilter.get('filterNone', False):
+            if (self.obj is not None or fieldToFilter.get('filterNone', False)) and not fieldToFilter.get('useAutocomplete', False):
                 field = fieldToFilter['field']
                 while field in autocompleteFields: autocompleteFields.remove(field)
 
