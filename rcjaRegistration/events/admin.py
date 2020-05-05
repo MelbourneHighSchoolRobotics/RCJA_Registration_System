@@ -154,18 +154,18 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
     list_display = [
         'name',
         'eventType',
+        'status',
         'year',
         'state',
+        'globalEvent',
         'startDate',
-        'endDate',
-        'registrationsOpenDate',
         'registrationsCloseDate',
-        'venue',
         'directEnquiriesToName',
+        'venue',
     ]
     competition_fieldsets = (
         (None, {
-            'fields': ('year', ('state', 'globalEvent'), 'name', 'eventType')
+            'fields': ('year', ('state', 'globalEvent'), 'name', 'eventType', 'status')
         }),
         ('Dates', {
             'fields': ('startDate', 'endDate', 'registrationsOpenDate', 'registrationsCloseDate')
@@ -182,7 +182,7 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
     )
     workshop_fieldsets = (
         (None, {
-            'fields': ('year', ('state', 'globalEvent'), 'name', 'eventType')
+            'fields': ('year', ('state', 'globalEvent'), 'name', 'eventType', 'status')
         }),
         ('Dates', {
             'fields': ('startDate', 'endDate', 'registrationsOpenDate', 'registrationsCloseDate')
@@ -222,6 +222,18 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
     add_readonly_fields = [
     ]
 
+    def get_readonly_fields(self, request, obj):
+        readonly_fields = super().get_readonly_fields(request, obj)
+
+        if obj is None:
+            return readonly_fields
+
+        # Make status read only if can't unpublish
+        if obj.status == 'published' and (obj.baseeventattendance_set.exists() or obj.invoice_set.exists()):
+            readonly_fields = readonly_fields + ['status']
+
+        return readonly_fields
+
     autocomplete_fields = [
         'state',
         'directEnquiriesTo',
@@ -230,12 +242,14 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
     inlines = [
         AvailableDivisionInline,
     ]
-    add_inlines = [ # Don't include available divisions here so the divisions will be fitlered when shown
+    add_inlines = [ # Don't include available divisions here so the divisions will be filtered when shown
     ]
     list_filter = [
-        'state',
+        'status',
         'eventType',
         'year',
+        'state',
+        'globalEvent',
     ]
     search_fields = [
         'name',
@@ -297,7 +311,10 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
         if obj.pk:
             if obj.venue is None:
                 self.message_user(request, f"{obj}: You haven't added a venue yet, we recommend adding a venue.", messages.WARNING)
-        
+
+            if obj.status != 'published':
+                self.message_user(request, f"{obj}: Event is not published, publish event to make visible.", messages.WARNING)
+
         super().save_model(request, obj, form, change)
 
     # Message user regarding divisions during inline save
@@ -312,10 +329,10 @@ class EventAdmin(DifferentAddFieldsMixin, AdminPermissions, admin.ModelAdmin, Ex
     # Filter in team and workshop autocompletes
     def get_search_results(self, request, queryset, search_term):
         if 'teams/team/' in request.META.get('HTTP_REFERER', ''):
-            queryset = queryset.filter(eventType='competition')
+            queryset = queryset.filter(eventType='competition', status='published')
 
         if 'workshops/workshopattendee/' in request.META.get('HTTP_REFERER', ''):
-            queryset = queryset.filter(eventType='workshop')
+            queryset = queryset.filter(eventType='workshop', status='published')
 
         return super().get_search_results(request, queryset, search_term)
 
