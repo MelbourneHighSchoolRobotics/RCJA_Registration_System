@@ -471,6 +471,17 @@ class TestTeamDetailsPermissions(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
 
+    def testDenied_notPublished(self):
+        self.event.status = 'draft'
+        self.event.save()
+
+        url = reverse('teams:details', kwargs={'teamID':self.team1.id})
+        login = self.client.login(request=HttpRequest(), username=self.email1, password=self.password)
+    
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(response, 'Event is not published', status_code=403)
+
     def testDenied_independent(self):
         url = reverse('teams:details', kwargs={'teamID':self.team1.id})
         login = self.client.login(request=HttpRequest(), username=self.email2, password=self.password)
@@ -652,6 +663,15 @@ class TestTeamDelete(TestCase):
         self.assertEqual(response.status_code, 204)
         self.assertRaises(Team.DoesNotExist, lambda: Team.objects.get(pk=self.team1.pk))
 
+    def testWrongEndpointDenied(self):
+        Team.objects.get(pk=self.team1.pk)
+        login = self.client.login(request=HttpRequest(), username=self.email1, password=self.password)
+        url = reverse('teams:create', kwargs={'eventID':self.team1.id})
+
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, 403)
+        Team.objects.get(pk=self.team1.pk)
+
     def testDenied_closed(self):
         self.event.registrationsCloseDate = (datetime.datetime.now() + datetime.timedelta(days=-1)).date()
         self.event.save()
@@ -806,6 +826,12 @@ class TestTeamMethods(TestCase):
 
     def testHomeState_noSchool(self):
         self.assertEqual(self.team1.homeState(), self.state1)
+
+    def testEventAttendanceType(self):
+        self.assertEqual(self.team1.eventAttendanceType(), 'team')
+
+    def testChildObject(self):
+        self.assertEqual(self.team1.childObject(), self.team1)
 
     def testMentorUserName(self):
         self.assertEqual(self.team1.mentorUserName(), 'First Last')

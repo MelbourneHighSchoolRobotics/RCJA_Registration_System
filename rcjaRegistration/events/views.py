@@ -1,5 +1,5 @@
 from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
 from django.template import loader
 from django.contrib.auth.decorators import login_required
 from django.views import View
@@ -53,11 +53,13 @@ def dashboard(request):
     currentEvents = Event.objects.filter(
         endDate__gte=datetime.datetime.today(),
         baseeventattendance__in=usersEventAttendances,
+        status="published",
     ).distinct().order_by('startDate').distinct()
 
     pastEvents = Event.objects.filter(
         endDate__lt=datetime.datetime.today(),
         baseeventattendance__in=usersEventAttendances,
+        status="published",
     ).order_by('-startDate').distinct()
 
     # Invoices
@@ -82,8 +84,17 @@ def coordinatorEventDetailsPermissions(request, event):
     from coordination.adminPermissions import checkStatePermissions
     return checkStatePermissions(request, event, 'view')
 
-def mentorEventDetailsPermissions_currentEvent(request, event):
-    return event.status == 'published' and event.registrationsOpen()
+def eventDetailsPermissions(request, event, filterDict):
+    if coordinatorEventDetailsPermissions(request, event):
+        return True
+
+    if event.published() and event.registrationsOpen():
+        return True
+
+    if event.published() and BaseEventAttendance.objects.filter(**filterDict).exists():
+        return True
+
+    return False
 
 @login_required
 def details(request, eventID):
@@ -102,7 +113,7 @@ def details(request, eventID):
             'event': event,
         }
 
-    if not (coordinatorEventDetailsPermissions(request, event) or mentorEventDetailsPermissions_currentEvent(request, event) or BaseEventAttendance.objects.filter(**filterDict).exists()):
+    if not eventDetailsPermissions(request, event, filterDict):
         raise PermissionDenied("This event is unavailable")
 
     # Filter team or workshop attendee
@@ -127,6 +138,7 @@ def details(request, eventID):
         'workshopAttendees': workshopAttendees,
         'showCampusColumn': BaseEventAttendance.objects.filter(**filterDict).exclude(campus=None).exists(),
         'billingTypeLabel': billingTypeLabel,
+        'hasAdminPermissions': coordinatorEventDetailsPermissions(request, event),
     }
     return render(request, 'events/details.html', context)   
 
@@ -134,7 +146,7 @@ def details(request, eventID):
 def loggedInUnderConstruction(request):
     return render(request,'common/loggedInUnderConstruction.html') 
 
-def eventAttendancePermissions(request, eventAttendance):
+def mentorEventAttendanceAccessPermissions(request, eventAttendance):
     if request.user.currentlySelectedSchool:
         # If user is a school administrator can only edit the currently selected school
         if request.user.currentlySelectedSchool != eventAttendance.school:
@@ -148,7 +160,7 @@ def eventAttendancePermissions(request, eventAttendance):
     return True
 
 class CreateEditBaseEventAttendance(LoginRequiredMixin, View):
-    def common(self, request, event, obj):
+    def common(self, request, event, eventAttendance):
         # Check is correct event type
         if event.eventType != self.eventType:
             raise PermissionDenied('Teams/ attendees cannot be created for this event type')
@@ -157,18 +169,30 @@ class CreateEditBaseEventAttendance(LoginRequiredMixin, View):
         if not event.registrationsOpen():
             raise PermissionDenied("Registration has closed for this event")
 
-        if event.status != 'published':
+        # Check event is published
+        if not event.published():
             raise PermissionDenied("Event is not published")
 
-        # Check administrator of this obj
-        if obj and not eventAttendancePermissions(request, obj):
+        # Check administrator of this eventAttendance
+        if eventAttendance and not mentorEventAttendanceAccessPermissions(request, eventAttendance):
             raise PermissionDenied("You are not an administrator of this team/ attendee")
 
-    def delete(self, request, objID):
-        obj = get_object_or_404(BaseEventAttendance, pk=objID)
-        event = obj.event
-        self.common(request, event, obj)
+    def delete(self, request, teamID=None, attendeeID=None, eventID=None):
+        # This endpoint should never be called with eventID
+        if eventID is not None:
+            return HttpResponseForbidden()
+        # Accept multiple variables because used for both teams and workshops
+        # Need to lookup the relevant one
+        eventAttendanceID = None
+        if teamID is not None:
+            eventAttendanceID = teamID
+        if attendeeID is not None:
+            eventAttendanceID = attendeeID
+
+        eventAttendance = get_object_or_404(BaseEventAttendance, pk=eventAttendanceID)
+        event = eventAttendance.event
+        self.common(request, event, eventAttendance)
 
         # Delete team
-        obj.delete()
+        eventAttendance.delete()
         return HttpResponse(status=204)
